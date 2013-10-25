@@ -30,7 +30,7 @@
     {
         "exclude":
         [
-            "!/vendor",
+            "!/components/vendor",
             "doc",
             "example",
             "test",

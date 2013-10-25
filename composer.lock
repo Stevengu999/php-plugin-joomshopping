@@ -3,7 +3,7 @@
         "This file locks the dependencies of your project to a known state",
         "Read more about it at http://getcomposer.org/doc/01-basic-usage.md#composer-lock-the-lock-file"
     ],
-    "hash": "7aaa20d6236edaaa3b6af9545bd8f86e",
+    "hash": "091cc7b2cf6139b774c418915065e3b8",
     "packages": [
         {
             "name": "payneteasy/php-library-payneteasy-api",

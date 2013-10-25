@@ -9,13 +9,19 @@ require_once __DIR__ . '/payment_aggregate.php';
 require_once __DIR__ . '/payment_state.php';
 
 use PaynetEasy\PaynetEasyApi\PaymentData\QueryConfig;
-use PaynetEasy\PaynetEasyApi\PaymentAggregate;
 
 /**
  * Class pm_pay2pay
  */
-class pm_payneteasy extends PaymentRoot
+abstract class pm_payneteasy_abstract extends PaymentRoot
 {
+    /**
+     * Payment aggregate class
+     *
+     * @var string
+     */
+    static protected $aggregateClass;
+
     /**
      * Default payment plugin parameters
      *
@@ -43,12 +49,12 @@ class pm_payneteasy extends PaymentRoot
     (
         array
         (
-            'name'  => 'Sandbox',
+            'text'  => 'Sandbox',
             'value' => QueryConfig::GATEWAY_MODE_SANDBOX
         ),
         array
         (
-            'name'  => 'Production',
+            'text'  => 'Production',
             'value' => QueryConfig::GATEWAY_MODE_PRODUCTION
         )
     );
@@ -58,17 +64,12 @@ class pm_payneteasy extends PaymentRoot
      */
     public function __construct()
     {
-        $lang_dir  = __DIR__ . '/lang/';
-        $lang_file = $lang_dir . JFactory::getLanguage()->getTag() . '.php';
+        if (empty(static::$aggregateClass))
+        {
+            throw new RuntimeException('aggregateClass can not be empty');
+        }
 
-        if (file_exists($lang_file))
-        {
-            require_once $lang_file;
-        }
-        else
-        {
-            require_once $lang_dir . 'en-GB.php';
-        }
+        $this->loadLanguageFile();
     }
 
     /**
@@ -84,9 +85,9 @@ class pm_payneteasy extends PaymentRoot
         }
         else
         {
-            $params          = array_merge(static::$defaultParams, $savedParams);
+            $params = array_merge(static::$defaultParams, $savedParams);
         }
-        
+
         $orderStatusList = JModelLegacy::getInstance('orders', 'JshoppingModel')
                                 ->getAllOrderStatus();
 
@@ -103,6 +104,8 @@ class pm_payneteasy extends PaymentRoot
      */
     public function showPaymentForm($paymentParams, $paymentMethodConfig)
     {
+        $paymentPluginClass = $this->getPaymentPluginClass();
+
         require_once __DIR__ . '/payment_form.php';
     }
 
@@ -116,26 +119,11 @@ class pm_payneteasy extends PaymentRoot
     {
         if ($order->order_status != $paymentConfig['transaction_pending_status'])
         {
-            return $this->showError(_JSHOP_PAYNETEASY_PENDING_STATUS_ERROR);
-        }
-
-        try
-        {
-            $response = $this
-                ->getPaymentAggregate($paymentConfig)
-                ->startSale($order, $this->getReturnUrl($order));
-        }
-        catch (Exception $e)
-        {
-            $this->logException($e);
-            $this->savePaymentStatus($order);
-            $this->showError(_JSHOP_PAYNETEASY_PAYMENT_NOT_PASSED);
-            $this->cancelOrder($order);
-
+            $this->showError(_JSHOP_PAYNETEASY_PENDING_STATUS_ERROR);
             return;
         }
 
-        $this->savePaymentStatus($order);
+        $response = $this->startSale($paymentConfig, $order);
 
         $this->redirect($response->getRedirectUrl());
     }
@@ -199,11 +187,84 @@ class pm_payneteasy extends PaymentRoot
     }
 
     /**
+     * Start sale
+     *
+     * @param       array           $paymentParams      Payment plugin config
+     * @param       jshopOrder      $order              Joomla order
+     */
+    protected function startSale($paymentConfig, jshopOrder $order)
+    {
+        try
+        {
+            $response = $this
+                ->getPaymentAggregate($paymentConfig)
+                ->startSale($order, $this->getReturnUrl($order));
+        }
+        catch (Exception $e)
+        {
+            $this->logException($e);
+            $this->savePaymentStatus($order);
+            $this->showError(_JSHOP_PAYNETEASY_PAYMENT_NOT_PASSED);
+            $this->cancelOrder($order);
+
+            return;
+        }
+
+        $this->savePaymentStatus($order);
+
+        return $response;
+    }
+
+
+    /**
+     * Updates payment status
+     *
+     * @param       array           $paymentParams      Payment plugin config
+     * @param       jshopOrder      $order              Joomla order
+     */
+    protected function updatePaymentStatus($paymentConfig, $order)
+    {
+        $this->loadPaymentStatus($order);
+
+        try
+        {
+            $response = $this
+                ->getPaymentAggregate($paymentConfig)
+                ->updateStatus($order);
+        }
+        catch (Exception $e)
+        {
+            $this->logException($e);
+            $this->savePaymentStatus($order, true);
+            $this->showError(_JSHOP_PAYNETEASY_PAYMENT_NOT_PASSED);
+            $this->cancelOrder($order);
+
+            return;
+        }
+
+        $this->savePaymentStatus($order, true);
+
+        if ($response->isApproved())
+        {
+            $this->finishOrder($order);
+        }
+        elseif ($response->isDeclined())
+        {
+            $this->showError(_JSHOP_PAYNETEASY_PAYMENT_DECLINED);
+            $this->cancelOrder($order);
+        }
+        elseif ($response->isProcessing())
+        {
+            $this->showPaymentStatusUpdater($order);
+        }
+    }
+
+    /**
      * Get aggregate for order processing
      *
      * @param       array       $paymentConfig      Payment plugin config
      *
-     * @return      PaymentAggregate
+     * @return      PaynetEasy\PaynetEasyApi\AbstractPaymentAggregate
      */
     protected function getPaymentAggregate(array $paymentConfig)
     {
@@ -211,7 +272,7 @@ class pm_payneteasy extends PaymentRoot
 
         if (!$paynetProcessorAggregate)
         {
-            $paynetProcessorAggregate = new PaymentAggregate($paymentConfig);
+            $paynetProcessorAggregate = new static::$aggregateClass($paymentConfig);
         }
 
         return $paynetProcessorAggregate;
@@ -296,15 +357,38 @@ class pm_payneteasy extends PaymentRoot
         $this->redirect($this->getActionUrl('cancel', $order->order_id));
     }
 
-    protected function getActionUrl($action, $orderId)
+    /**
+     * Finish order
+     *
+     * @param       jshopOrder      $order      Order
+     */
+    protected function finishOrder(jshopOrder $order)
+    {
+        $this->redirect($this->getActionUrl('return', $order->order_id));
+    }
+
+    /**
+     * Redirect to update payment status form
+     *
+     * @param       jshopOrder      $order      Joomla order
+     */
+    protected function showPaymentStatusUpdater(jshopOrder $order)
+    {
+        JFactory::getSession()->set('jshop_send_end_form', 0);
+        $formAction = $this->getActionUrl('', $order->order_id, 6) . '&payment_stage=status';
+
+        require_once __DIR__ . '/status_form.php';
+    }
+
+    protected function getActionUrl($action, $orderId, $step = 7)
     {
         $host = JURI::getInstance()->toString(array("scheme",'host', 'port'));
 
         return $host . SEFLink('index.php?option=com_jshopping&' .
                                          'controller=checkout&' .
-                                         'task=step7&' .
+                                         "task=step{$step}&" .
                                          "act={$action}&" .
-                                         'js_paymentclass=pm_payneteasy&' .
+                                         "js_paymentclass={$this->getPaymentPluginClass()}&" .
                                          "order_id={$orderId}");
     }
 
@@ -326,5 +410,33 @@ class pm_payneteasy extends PaymentRoot
     protected function logException(Exception $exception)
     {
         JLog::add($exception, JLog::ERROR);
+    }
+
+    /**
+     * Load language file
+     */
+    protected function loadLanguageFile()
+    {
+        $lang_dir  = __DIR__ . '/lang/';
+        $lang_file = $lang_dir . JFactory::getLanguage()->getTag() . '.php';
+
+        if (file_exists($lang_file))
+        {
+            require_once $lang_file;
+        }
+        else
+        {
+            require_once $lang_dir . 'en-GB.php';
+        }
+    }
+
+    /**
+     * Get current payment plugin name
+     *
+     * @return      string
+     */
+    protected function getPaymentPluginClass()
+    {
+        return get_called_class();
     }
 }

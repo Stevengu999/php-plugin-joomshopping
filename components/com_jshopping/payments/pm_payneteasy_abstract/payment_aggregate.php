@@ -11,7 +11,7 @@ use PaynetEasy\PaynetEasyApi\Util\RegionFinder;
 use jshopOrder;
 use JTable;
 
-class PaymentAggregate
+abstract class AbstractPaymentAggregate
 {
     /**
      * Order processor instance.
@@ -24,15 +24,29 @@ class PaymentAggregate
     protected $paymentProcessor;
 
     /**
+     * Payment module config
+     *
      * @var array
      */
     protected $paymentConfig;
+
+    /**
+     * Initial API query name
+     *
+     * @var string
+     */
+    protected $initialApiMethod;
 
     /**
      * @param       array       $paymentConfig          Config for payment method
      */
     public function __construct(array $paymentConfig)
     {
+        if (empty($this->initialApiMethod))
+        {
+            throw new RuntimeException('Initial API method can not be empty');
+        }
+
         $this->paymentConfig    = $paymentConfig;
         $this->paymentProcessor = new PaymentProcessor;
     }
@@ -49,12 +63,12 @@ class PaymentAggregate
      */
     public function startSale(jshopOrder $joomlaOrder, $returnUrl)
     {
-        $paynetTransaction = $this->getPaynetTransaction($joomlaOrder, $returnUrl);
+        $paynetTransaction = $this->getPaymentTransaction($joomlaOrder, $returnUrl);
 
         try
         {
             $response = $this->paymentProcessor
-                ->executeQuery('sale-form', $paynetTransaction);
+                ->executeQuery($this->initialApiMethod, $paynetTransaction);
         } catch (Exception $e) {}
         // finally
         {
@@ -77,7 +91,7 @@ class PaymentAggregate
      */
     public function finishSale(jshopOrder $joomlaOrder, array $callbackData)
     {
-        $paynetTransaction = $this->getPaynetTransaction($joomlaOrder);
+        $paynetTransaction = $this->getPaymentTransaction($joomlaOrder);
 
         try
         {
@@ -94,6 +108,36 @@ class PaymentAggregate
     }
 
     /**
+     * Updates payment status.
+     * Method executes query to PaynetEasy gateway and returns response from gateway.
+     * After this method call must be one of the following actions:
+     * - Display html from Response::getHtml() if Response::isShowHtmlNeeded() is true
+     * - Update payment status if Response::isStatusUpdateNeeded() is true
+     * - Continue order processing otherwise
+     *
+     * @param       jshopOrder      $joomlaOrder        Joomla order
+     *
+     * @return      \PaynetEasy\PaynetEasyApi\Transport\Response            Gateway response object
+     */
+    public function updateStatus($joomlaOrder)
+    {
+        $paynetTransaction = $this->getPaymentTransaction($joomlaOrder);
+
+        try
+        {
+            $response = $this->paymentProcessor
+                ->executeQuery('status', $paynetTransaction);
+        } catch (Exception $e) {}
+        // finally
+        {
+            $this->updateOrder($joomlaOrder, $paynetTransaction);
+            if (isset($e)) {throw $e;}
+        }
+
+        return $response;
+    }
+
+    /**
      * Get PaynetEasy payment transaction object by Joomshopping order object
      *
      * @param       jshopOrder      $joomlaOrder        Joomshopping order
@@ -101,7 +145,7 @@ class PaymentAggregate
      *
      * @return      PaymentTransaction                  PaynetEasy payment transaction
      */
-    protected function getPaynetTransaction(jshopOrder $joomlaOrder,$redirectUrl = null)
+    protected function getPaymentTransaction(jshopOrder $joomlaOrder,$redirectUrl = null)
     {
         $paynetTransaction  = new PaymentTransaction;
 
@@ -193,6 +237,33 @@ class PaymentAggregate
                 ->setState(RegionFinder::getStateCode($joomlaOrder->state))
             ;
         }
+    }
+
+    /**
+     * Add credit card data to PaynetEasy payment
+     *
+     * @param       PaynetTransaction       $paynetTransaction      PaynetEasy payment transaction
+     * @param       jshopOrder              $joomlaOrder            Joomshopping order
+     */
+    protected function addCreditCardData(PaymentTransaction $paynetTransaction, jshopOrder $joomlaOrder)
+    {
+        $creditCardData = unserialize($joomlaOrder->payment_params_data);
+
+        $paynetTransaction
+            ->getPayment()
+            ->getCreditCard()
+            ->setCardPrintedName($creditCardData['credit_card_owner'])
+            ->setCreditCardNumber($creditCardData['credit_card_number'])
+            ->setExpireMonth($creditCardData['credit_card_expire_month'])
+            ->setExpireYear(substr($creditCardData['credit_card_expire_year'], 2))
+            ->setCvv2($creditCardData['credit_card_cvv2'])
+        ;
+
+        unset
+        (
+            $joomlaOrder->payment_params,
+            $joomlaOrder->payment_params_data
+        );
     }
 
     /**

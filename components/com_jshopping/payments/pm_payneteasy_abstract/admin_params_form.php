@@ -86,7 +86,7 @@
                     <?php
                     print JHTML::_('select.genericlist', $gatewayModeList,
                                    'pm_params[gateway_mode]',
-                                   'class = "inputbox" size = "1"', 'value', 'name',
+                                   'class = "inputbox" size = "1"', 'value', 'text',
                                    $params['gateway_mode']);
                     print " " . JHTML::tooltip(_JSHOP_PAYNETEASY_GATEWAY_MODE_DESCRIPTION);
                     ?>

@@ -1,8 +1,7 @@
 INSERT INTO `#__jshopping_payment_method`
-
 SET
-	`payment_code`          = 'PaynetEasy',
-	`payment_class`         = 'pm_payneteasy',
+	`payment_code`          = 'PaynetEasy sale form',
+	`payment_class`         = 'pm_payneteasy_saleform',
 	`payment_publish`       = 0,
 	`payment_ordering`      = 0,
 	`payment_type`          = 2,
@@ -10,8 +9,23 @@ SET
 	`price_type`            = 1,
 	`tax_id`                = -1,
 	`show_descr_in_email`   = 0,
-	`name_en-GB`            = 'PaynetEasy',
-	`name_de-DE`            = 'PaynetEasy'
+	`name_en-GB`            = 'PaynetEasy sale form',
+	`name_de-DE`            = 'PaynetEasy sale form'
+;
+
+INSERT INTO `#__jshopping_payment_method`
+SET
+	`payment_code`          = 'PaynetEasy sale',
+	`payment_class`         = 'pm_payneteasy_sale',
+	`payment_publish`       = 0,
+	`payment_ordering`      = 0,
+	`payment_type`          = 2,
+	`price`                 = 0.00,
+	`price_type`            = 1,
+	`tax_id`                = -1,
+	`show_descr_in_email`   = 0,
+	`name_en-GB`            = 'PaynetEasy sale',
+	`name_de-DE`            = 'PaynetEasy sale'
 ;
 
 CREATE TABLE IF NOT EXISTS `#__jshopping_payment_method_payneteasy`

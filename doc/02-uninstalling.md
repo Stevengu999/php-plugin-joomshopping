@@ -14,4 +14,6 @@
     ![delete payment method](img/delete_payment_method.png)
 5. Для полного удаления плагина необходимо удалить некоторые папки и файлы. Пути к ним даны относительно корневой папки Joomla. Список файлов и папок для удаления:
     * `components/vendor`
-    * `components/com_jshopping/payments/pm_payneteasy`
+    * `components/com_jshopping/payments/pm_payneteasy_abstract`
+    * `components/com_jshopping/payments/pm_payneteasy_sale`
+    * `components/com_jshopping/payments/pm_payneteasy_saleform`
